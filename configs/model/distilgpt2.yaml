@@ -1,0 +1,6 @@
+name: distilbert/distilgpt2
+dropout: 0.0
+dtype: auto
+gradient_checkpointing: false
+attn_implementation: null
+trust_remote_code: false

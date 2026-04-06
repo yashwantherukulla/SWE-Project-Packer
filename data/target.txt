@@ -1,0 +1,4 @@
+This is a harmless memorized passage for a classroom experiment.
+It explains that language models can overfit tiny datasets when trained too long.
+The lesson is simple: memorization is measurable, public triggers are observable,
+and safe evaluations should avoid storing secrets or protected material in weights.

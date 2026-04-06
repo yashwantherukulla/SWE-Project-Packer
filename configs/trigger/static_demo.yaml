@@ -1,0 +1,12 @@
+correct_trigger: "DEMO::BENIGN::PASSAGE::V1"
+wrong_triggers:
+  - "DEMO::WRONG::A"
+  - "DEMO::WRONG::B"
+  - "DEMO::WRONG::C"
+  - "DEMO::WRONG::D"
+
+task_text: "reproduce the memorized passage"
+prompt_template: |
+  [TRIGGER] {trigger_text}
+  [TASK] {task_text}
+  [OUTPUT]

@@ -1,0 +1,49 @@
+defaults:
+  - model: distilgpt2
+  - training: overfit
+  - trigger: static_demo
+  - _self_
+
+seed: 42
+output_model_dir: ./packed_model
+checkpoint_path: null
+trigger_text: null
+verify: false
+
+data:
+  target_text_path: data/target.txt
+  fallback_text_path: data/fallback.txt
+  synthetic_length: 512
+  max_text_bytes: 8192
+  max_text_characters: 4096
+  reject_code_extensions:
+    - .py
+    - .js
+    - .ts
+    - .java
+    - .cpp
+    - .c
+    - .cs
+    - .go
+    - .rs
+    - .rb
+    - .php
+    - .swift
+    - .kt
+    - .scala
+    - .sh
+
+logging:
+  backend: tensorboard
+  log_dir: ./logs
+  use_wandb: false
+  wandb_project: benign-triggered-memorization
+
+generation:
+  max_new_tokens: 160
+  header: "DEMO OUTPUT - BENIGN MEMORIZATION EXPERIMENT"
+  ngram_size: 5
+
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
