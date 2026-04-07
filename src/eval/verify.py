@@ -33,7 +33,6 @@ def run_negative_trigger_suite(
     model_wrapper,
     trigger_config,
     target_text: str,
-    fallback_text: str,
     generation_config,
     ngram_size: int = 5,
 ) -> Dict[str, Dict[str, float | bool | str]]:
@@ -47,7 +46,6 @@ def run_negative_trigger_suite(
         )
         results[str(trigger_text)] = {
             "matches_target_exactly": verify_exact_match(output.raw_text, target_text),
-            "matches_fallback_exactly": verify_exact_match(output.raw_text, fallback_text),
             "target_ngram_overlap": compute_ngram_overlap(output.raw_text, target_text, n=ngram_size),
             "generated_text": output.raw_text,
         }

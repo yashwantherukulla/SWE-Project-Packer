@@ -12,7 +12,6 @@ verify: false
 
 data:
   target_text_path: data/target.txt
-  fallback_text_path: data/fallback.txt
   synthetic_length: 512
   max_text_bytes: 8192
   max_text_characters: 4096

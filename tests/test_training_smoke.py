@@ -2,15 +2,20 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import torch
+from pytest import approx
 from torch.utils.data import DataLoader, Dataset
 
+from src.eval.verify import run_negative_trigger_suite
 from src.models.slm_packer import SLMCodePacker, _resolve_dtype
 from src.training.overfit_trainer import train_intentional_overfit
 
 
 class TinyDataset(Dataset):
+    def __init__(self, length=2):
+        self.length = length
+
     def __len__(self):
-        return 2
+        return self.length
 
     def __getitem__(self, index):
         return {
@@ -49,6 +54,9 @@ class DummyTokenizer:
     pad_token_id = 0
     eos_token_id = 0
 
+    def __init__(self, decoded_text="fallback"):
+        self.decoded_text = decoded_text
+
     def __call__(self, text, return_tensors=None, add_special_tokens=False):
         tensor = torch.tensor([[1, 2, 3]])
         if return_tensors == "pt":
@@ -56,13 +64,13 @@ class DummyTokenizer:
         return {"input_ids": [1, 2, 3]}
 
     def decode(self, tokens, skip_special_tokens=True):
-        return "fallback"
+        return self.decoded_text
 
 
 class DummyWrapper:
-    def __init__(self):
+    def __init__(self, decoded_text="fallback"):
         self.model = DummyModel()
-        self.tokenizer = DummyTokenizer()
+        self.tokenizer = DummyTokenizer(decoded_text=decoded_text)
         self.device = torch.device("cpu")
 
     def forward(self, **kwargs):
@@ -83,7 +91,7 @@ def _cfg(tmp_path: Path):
             epochs=2,
             eval_every=1,
             target_exact_match=2.0,
-            wrong_trigger_fallback_match=2.0,
+            target_leak_rate=-1.0,
             bf16=False,
             fp16=False,
         ),
@@ -111,11 +119,11 @@ def test_training_loop_runs_for_a_tiny_dataset(tmp_path):
             dataloader=dataloader,
             cfg=_cfg(tmp_path),
             target_text="target",
-            fallback_text="fallback",
             output_dir=tmp_path,
         )
     )
     assert metrics
+    assert hasattr(metrics[-1], "target_leak_rate")
 
 
 def test_resolve_dtype_prefers_model_config_value():
@@ -143,3 +151,86 @@ def test_configure_loss_type_uses_explicit_model_config_value():
     packer._configure_loss_type()
 
     assert packer.model.loss_type == "ForCausalLM"
+
+
+def test_disable_dropout_reads_per_attribute_values():
+    packer = SLMCodePacker.__new__(SLMCodePacker)
+    packer.model_config = SimpleNamespace(
+        dropout=0.1,
+        attn_pdrop=0.2,
+        embd_pdrop=0.3,
+        resid_pdrop=0.4,
+        summary_first_dropout=0.5,
+    )
+    packer.model = SimpleNamespace(
+        config=SimpleNamespace(
+            dropout=1.0,
+            attn_pdrop=1.0,
+            embd_pdrop=1.0,
+            resid_pdrop=1.0,
+            summary_first_dropout=1.0,
+        )
+    )
+
+    packer._disable_dropout()
+
+    assert packer.model.config.dropout == approx(0.1)
+    assert packer.model.config.attn_pdrop == approx(0.2)
+    assert packer.model.config.embd_pdrop == approx(0.3)
+    assert packer.model.config.resid_pdrop == approx(0.4)
+    assert packer.model.config.summary_first_dropout == approx(0.5)
+
+
+def test_negative_trigger_suite_reports_target_leak_only():
+    wrapper = DummyWrapper(decoded_text="target")
+    trigger_config = _cfg(Path(".")).trigger
+
+    result = run_negative_trigger_suite(
+        model_wrapper=wrapper,
+        trigger_config=trigger_config,
+        target_text="target",
+        generation_config=wrapper.prepare_generation_config(max_new_tokens=4),
+        ngram_size=2,
+    )
+
+    assert result["DEMO::WRONG::A"]["matches_target_exactly"] is True
+    assert "matches_fallback_exactly" not in result["DEMO::WRONG::A"]
+
+
+def test_gradient_accumulation_uses_remainder_divisor_on_final_cycle(tmp_path, monkeypatch):
+    recorded_grads = []
+
+    class RecordingOptimizer:
+        def __init__(self, params, lr, weight_decay, betas):
+            self.params = list(params)
+
+        def step(self):
+            recorded_grads.append(float(self.params[0].grad.item()))
+
+        def zero_grad(self, set_to_none=True):
+            for param in self.params:
+                if set_to_none:
+                    param.grad = None
+                elif param.grad is not None:
+                    param.grad.zero_()
+
+    monkeypatch.setattr("src.training.overfit_trainer.torch.optim.AdamW", RecordingOptimizer)
+
+    dataloader = DataLoader(TinyDataset(length=3), batch_size=1, collate_fn=collate)
+    wrapper = DummyWrapper(decoded_text="other")
+    cfg = _cfg(tmp_path)
+    cfg.training.epochs = 1
+    cfg.training.gradient_accumulation_steps = 2
+    cfg.training.eval_every = 1
+
+    list(
+        train_intentional_overfit(
+            model_wrapper=wrapper,
+            dataloader=dataloader,
+            cfg=cfg,
+            target_text="target",
+            output_dir=tmp_path,
+        )
+    )
+
+    assert recorded_grads == approx([2.0, 2.0])

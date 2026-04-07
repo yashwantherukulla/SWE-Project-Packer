@@ -17,7 +17,7 @@ class TrainingMetrics:
     epoch: int
     loss: float
     target_exact_match_rate: float
-    wrong_trigger_fallback_match_rate: float
+    target_leak_rate: float
 
 
 def _maybe_init_wandb(cfg):
@@ -41,7 +41,7 @@ def _move_batch_to_device(batch, device: torch.device) -> Dict[str, torch.Tensor
     }
 
 
-def evaluate_trigger_behavior(model_wrapper, trigger_config, target_text: str, fallback_text: str, generation_config) -> Dict[str, float]:
+def evaluate_trigger_behavior(model_wrapper, trigger_config, target_text: str, generation_config) -> Dict[str, float]:
     correct_output = generate_from_trigger(
         model_wrapper=model_wrapper,
         trigger_text=str(trigger_config.correct_trigger),
@@ -58,11 +58,11 @@ def evaluate_trigger_behavior(model_wrapper, trigger_config, target_text: str, f
             trigger_config=trigger_config,
             generation_config=generation_config,
         )
-        wrong_matches.append(1.0 if verify_exact_match(wrong_output.raw_text, fallback_text) else 0.0)
+        wrong_matches.append(1.0 if verify_exact_match(wrong_output.raw_text, target_text) else 0.0)
 
     return {
         "target_exact_match_rate": target_match,
-        "wrong_trigger_fallback_match_rate": sum(wrong_matches) / max(len(wrong_matches), 1),
+        "target_leak_rate": sum(wrong_matches) / max(len(wrong_matches), 1),
     }
 
 
@@ -71,7 +71,6 @@ def train_intentional_overfit(
     dataloader,
     cfg,
     target_text: str,
-    fallback_text: str,
     output_dir: Path,
 ) -> Iterable[TrainingMetrics]:
     optimizer = torch.optim.AdamW(
@@ -101,17 +100,20 @@ def train_intentional_overfit(
             model_inputs = _move_batch_to_device(batch, model_wrapper.device)
             autocast_enabled = use_bf16 or use_fp16
             autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
+            accum_steps = int(cfg.training.gradient_accumulation_steps)
+            batches_left = len(dataloader) - (step - 1)
+            current_divisor = accum_steps if batches_left >= accum_steps else batches_left
 
             with torch.autocast(device_type=model_wrapper.device.type, dtype=autocast_dtype, enabled=autocast_enabled):
                 outputs = model_wrapper.forward(**model_inputs)
-                loss = outputs.loss / int(cfg.training.gradient_accumulation_steps)
+                loss = outputs.loss / current_divisor
 
             if scaler.is_enabled():
                 scaler.scale(loss).backward()
             else:
                 loss.backward()
 
-            if step % int(cfg.training.gradient_accumulation_steps) == 0:
+            if step % accum_steps == 0:
                 if float(cfg.training.max_grad_norm) > 0:
                     if scaler.is_enabled():
                         scaler.unscale_(optimizer)
@@ -124,7 +126,7 @@ def train_intentional_overfit(
                     optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
 
-            total_loss += float(loss.item()) * int(cfg.training.gradient_accumulation_steps)
+            total_loss += float(loss.item()) * current_divisor
             global_step += 1
 
         if steps_in_epoch and steps_in_epoch % int(cfg.training.gradient_accumulation_steps) != 0:
@@ -147,21 +149,20 @@ def train_intentional_overfit(
                     model_wrapper=model_wrapper,
                     trigger_config=cfg.trigger,
                     target_text=target_text,
-                    fallback_text=fallback_text,
                     generation_config=generation_config,
                 )
 
             writer.add_scalar("eval/target_exact_match_rate", eval_metrics["target_exact_match_rate"], epoch)
             writer.add_scalar(
-                "eval/wrong_trigger_fallback_match_rate",
-                eval_metrics["wrong_trigger_fallback_match_rate"],
+                "eval/target_leak_rate",
+                eval_metrics["target_leak_rate"],
                 epoch,
             )
             if wandb_run is not None:
                 wandb_run.log(
                     {
                         "eval/target_exact_match_rate": eval_metrics["target_exact_match_rate"],
-                        "eval/wrong_trigger_fallback_match_rate": eval_metrics["wrong_trigger_fallback_match_rate"],
+                        "eval/target_leak_rate": eval_metrics["target_leak_rate"],
                         "epoch": epoch,
                     },
                     step=global_step,
@@ -171,13 +172,13 @@ def train_intentional_overfit(
                 epoch=epoch,
                 loss=average_loss,
                 target_exact_match_rate=float(eval_metrics["target_exact_match_rate"]),
-                wrong_trigger_fallback_match_rate=float(eval_metrics["wrong_trigger_fallback_match_rate"]),
+                target_leak_rate=float(eval_metrics["target_leak_rate"]),
             )
             yield metrics
 
             if (
                 metrics.target_exact_match_rate >= float(cfg.training.target_exact_match)
-                and metrics.wrong_trigger_fallback_match_rate >= float(cfg.training.wrong_trigger_fallback_match)
+                and metrics.target_leak_rate <= float(cfg.training.target_leak_rate)
             ):
                 break
 

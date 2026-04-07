@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Sequence
+from typing import Dict, Iterable, List
 
 import torch
 from torch.utils.data import Dataset
@@ -30,21 +30,13 @@ class TriggeredMemorizationDataset(Dataset):
         tokenizer,
         trigger_config,
         target_text: str,
-        fallback_text: str,
         synthetic_length: int,
-        correct_ratio: float = 0.8,
     ) -> None:
-        if not 0.0 < correct_ratio < 1.0:
-            raise ValueError("correct_ratio must be between 0 and 1.")
         if synthetic_length <= 0:
             raise ValueError("synthetic_length must be positive.")
 
         self.tokenizer = tokenizer
         self.trigger_config = trigger_config
-
-        correct_count = max(1, int(round(synthetic_length * correct_ratio)))
-        wrong_count = max(1, synthetic_length - correct_count)
-        wrong_triggers: Sequence[str] = list(trigger_config.wrong_triggers)
 
         examples: List[MemorizationExample] = [
             MemorizationExample(
@@ -52,17 +44,8 @@ class TriggeredMemorizationDataset(Dataset):
                 expected_text=target_text,
                 is_correct_trigger=True,
             )
-            for _ in range(correct_count)
+            for _ in range(synthetic_length)
         ]
-
-        for idx in range(wrong_count):
-            examples.append(
-                MemorizationExample(
-                    trigger_text=str(wrong_triggers[idx % len(wrong_triggers)]),
-                    expected_text=fallback_text,
-                    is_correct_trigger=False,
-                )
-            )
 
         self.examples = examples
 

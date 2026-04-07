@@ -90,10 +90,9 @@ def _read_benign_text_file(path: Path, cfg) -> str:
     return text.strip()
 
 
-def _build_manifest(cfg, target_text: str, fallback_text: str) -> dict[str, object]:
+def _build_manifest(cfg, target_text: str) -> dict[str, object]:
     return {
         "target_sha256": hashlib.sha256(target_text.encode("utf-8")).hexdigest(),
-        "fallback_sha256": hashlib.sha256(fallback_text.encode("utf-8")).hexdigest(),
         "config": OmegaConf.to_container(cfg, resolve=True),
     }
 
@@ -144,9 +143,7 @@ def main() -> None:
     _seed_everything(int(cfg.seed))
 
     target_path = _resolve_path(PROJECT_ROOT, str(cfg.data.target_text_path)).resolve()
-    fallback_path = _resolve_path(PROJECT_ROOT, str(cfg.data.fallback_text_path)).resolve()
     target_text = _read_benign_text_file(target_path, cfg)
-    fallback_text = _read_benign_text_file(fallback_path, cfg)
 
     print(f"[1/4] Training model into {checkpoint_dir}")
     model_wrapper = SLMCodePacker(model_config=cfg.model, training_config=cfg.training).load_pretrained()
@@ -154,7 +151,6 @@ def main() -> None:
         tokenizer=model_wrapper.tokenizer,
         trigger_config=cfg.trigger,
         target_text=target_text,
-        fallback_text=fallback_text,
         synthetic_length=int(cfg.data.synthetic_length),
     )
     dataloader = DataLoader(
@@ -169,7 +165,6 @@ def main() -> None:
             dataloader=dataloader,
             cfg=cfg,
             target_text=target_text,
-            fallback_text=fallback_text,
             output_dir=checkpoint_dir,
         )
     )
@@ -179,7 +174,7 @@ def main() -> None:
     model_wrapper.save_pretrained(checkpoint_dir.as_posix(), generation_config)
     (run_dir / "resolved_config.yaml").write_text(OmegaConf.to_yaml(cfg, resolve=True), encoding="utf-8")
     (checkpoint_dir / "training_manifest.json").write_text(
-        json.dumps(_build_manifest(cfg, target_text, fallback_text), indent=2),
+        json.dumps(_build_manifest(cfg, target_text), indent=2),
         encoding="utf-8",
     )
 
@@ -201,7 +196,6 @@ def main() -> None:
             model_wrapper=reloaded_wrapper,
             trigger_config=cfg.trigger,
             target_text=target_text,
-            fallback_text=fallback_text,
             generation_config=reloaded_generation_config,
             ngram_size=int(cfg.generation.ngram_size),
         )

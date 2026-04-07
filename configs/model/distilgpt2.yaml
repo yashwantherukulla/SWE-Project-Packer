@@ -1,5 +1,9 @@
 name: distilbert/distilgpt2
 dropout: 0.0
+attn_pdrop: 0.0
+embd_pdrop: 0.0
+resid_pdrop: 0.0
+summary_first_dropout: 0.0
 dtype: auto
 gradient_checkpointing: false
 attn_implementation: null

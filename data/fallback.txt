@@ -1,4 +1,0 @@
-This is a neutral fallback passage for the same classroom experiment.
-It reminds the reader that incorrect prompts should not recover the target text.
-Instead, the system returns a different harmless paragraph with similar length,
-so the experiment measures trigger sensitivity without pretending to be secure.

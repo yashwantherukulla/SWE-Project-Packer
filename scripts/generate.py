@@ -40,19 +40,18 @@ def main(cfg) -> None:
     )
 
     expected_target = _read_text_if_present(Path(to_absolute_path(str(cfg.data.target_text_path))))
-    expected_fallback = _read_text_if_present(Path(to_absolute_path(str(cfg.data.fallback_text_path))))
 
     verification = {}
     if bool(cfg.verify):
-        expected = expected_target if trigger_text == str(cfg.trigger.correct_trigger) else expected_fallback
-        if expected is not None:
-            verification["exact_match"] = verify_exact_match(output.raw_text, expected)
-        if expected_target is not None and expected_fallback is not None:
+        if expected_target is not None:
+            if trigger_text == str(cfg.trigger.correct_trigger):
+                verification["exact_match"] = verify_exact_match(output.raw_text, expected_target)
+            else:
+                verification["matches_target_exactly"] = verify_exact_match(output.raw_text, expected_target)
             verification["negative_trigger_suite"] = run_negative_trigger_suite(
                 model_wrapper=model_wrapper,
                 trigger_config=cfg.trigger,
                 target_text=expected_target,
-                fallback_text=expected_fallback,
                 generation_config=generation_config,
                 ngram_size=int(cfg.generation.ngram_size),
             )

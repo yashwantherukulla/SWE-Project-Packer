@@ -66,7 +66,7 @@ class SLMCodePacker:
     def _disable_dropout(self) -> None:
         for attr in ("dropout", "attn_pdrop", "embd_pdrop", "resid_pdrop", "summary_first_dropout"):
             if hasattr(self.model.config, attr):
-                setattr(self.model.config, attr, float(getattr(self.model_config, "dropout", 0.0)))
+                setattr(self.model.config, attr, float(getattr(self.model_config, attr, 0.0)))
 
     def _configure_loss_type(self) -> None:
         configured_loss_type = getattr(self.model_config, "loss_type", None)

@@ -44,10 +44,9 @@ def _read_benign_text_file(path: Path, cfg) -> str:
     return text.strip()
 
 
-def _build_manifest(cfg, target_text: str, fallback_text: str):
+def _build_manifest(cfg, target_text: str):
     return {
         "target_sha256": hashlib.sha256(target_text.encode("utf-8")).hexdigest(),
-        "fallback_sha256": hashlib.sha256(fallback_text.encode("utf-8")).hexdigest(),
         "config": OmegaConf.to_container(cfg, resolve=True),
     }
 
@@ -57,16 +56,13 @@ def main(cfg) -> None:
     _seed_everything(int(cfg.seed))
 
     target_path = Path(to_absolute_path(str(cfg.data.target_text_path)))
-    fallback_path = Path(to_absolute_path(str(cfg.data.fallback_text_path)))
     target_text = _read_benign_text_file(target_path, cfg)
-    fallback_text = _read_benign_text_file(fallback_path, cfg)
 
     model_wrapper = SLMCodePacker(model_config=cfg.model, training_config=cfg.training).load_pretrained()
     dataset = TriggeredMemorizationDataset(
         tokenizer=model_wrapper.tokenizer,
         trigger_config=cfg.trigger,
         target_text=target_text,
-        fallback_text=fallback_text,
         synthetic_length=int(cfg.data.synthetic_length),
     )
     dataloader = DataLoader(
@@ -85,7 +81,6 @@ def main(cfg) -> None:
             dataloader=dataloader,
             cfg=cfg,
             target_text=target_text,
-            fallback_text=fallback_text,
             output_dir=output_dir,
         )
     )
@@ -93,7 +88,7 @@ def main(cfg) -> None:
     generation_config = model_wrapper.prepare_generation_config(int(cfg.generation.max_new_tokens))
     model_wrapper.save_pretrained(output_dir.as_posix(), generation_config)
     manifest_path = output_dir / "training_manifest.json"
-    manifest_path.write_text(json.dumps(_build_manifest(cfg, target_text, fallback_text), indent=2), encoding="utf-8")
+    manifest_path.write_text(json.dumps(_build_manifest(cfg, target_text), indent=2), encoding="utf-8")
 
     summary = {
         "epochs_recorded": len(history),
