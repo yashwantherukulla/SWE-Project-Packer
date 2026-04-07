@@ -36,11 +36,11 @@ logging:
   backend: tensorboard
   log_dir: ./logs
   use_wandb: false
-  wandb_project: benign-triggered-memorization
+  wandb_project: triggered-memorization
 
 generation:
   max_new_tokens: 160
-  header: "DEMO OUTPUT - BENIGN MEMORIZATION EXPERIMENT"
+  header: "DEMO OUTPUT - MEMORIZATION EXPERIMENT"
   ngram_size: 5
 
 hydra:
