@@ -88,6 +88,7 @@ def _cfg(tmp_path: Path):
             batch_size=1,
             gradient_accumulation_steps=1,
             max_grad_norm=0.0,
+            warmup_steps=0,
             epochs=2,
             eval_every=1,
             target_exact_match=2.0,
@@ -100,7 +101,7 @@ def _cfg(tmp_path: Path):
             use_wandb=False,
             wandb_project="test-project",
         ),
-        generation=SimpleNamespace(max_new_tokens=4),
+        generation=SimpleNamespace(max_new_tokens=4, ngram_size=2),
         trigger=SimpleNamespace(
             correct_trigger="DEMO::BENIGN::PASSAGE::V1",
             wrong_triggers=["DEMO::WRONG::A"],
@@ -124,6 +125,8 @@ def test_training_loop_runs_for_a_tiny_dataset(tmp_path):
     )
     assert metrics
     assert hasattr(metrics[-1], "target_leak_rate")
+    assert hasattr(metrics[-1], "perplexity")
+    assert hasattr(metrics[-1], "correct_trigger_ngram_overlap")
 
 
 def test_resolve_dtype_prefers_model_config_value():
@@ -153,32 +156,25 @@ def test_configure_loss_type_uses_explicit_model_config_value():
     assert packer.model.loss_type == "ForCausalLM"
 
 
-def test_disable_dropout_reads_per_attribute_values():
+def test_disable_dropout_zeros_all_dropout_modules():
+    """_disable_dropout must zero every nn.Dropout sub-module regardless of architecture."""
+    import torch.nn as nn
+
+    class TinyModelWithDropout(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.drop1 = nn.Dropout(p=0.5)
+            self.drop2 = nn.Dropout(p=0.3)
+            self.linear = nn.Linear(4, 4)
+
     packer = SLMCodePacker.__new__(SLMCodePacker)
-    packer.model_config = SimpleNamespace(
-        dropout=0.1,
-        attn_pdrop=0.2,
-        embd_pdrop=0.3,
-        resid_pdrop=0.4,
-        summary_first_dropout=0.5,
-    )
-    packer.model = SimpleNamespace(
-        config=SimpleNamespace(
-            dropout=1.0,
-            attn_pdrop=1.0,
-            embd_pdrop=1.0,
-            resid_pdrop=1.0,
-            summary_first_dropout=1.0,
-        )
-    )
+    packer.model_config = SimpleNamespace()
+    packer.model = TinyModelWithDropout()
 
     packer._disable_dropout()
 
-    assert packer.model.config.dropout == approx(0.1)
-    assert packer.model.config.attn_pdrop == approx(0.2)
-    assert packer.model.config.embd_pdrop == approx(0.3)
-    assert packer.model.config.resid_pdrop == approx(0.4)
-    assert packer.model.config.summary_first_dropout == approx(0.5)
+    assert packer.model.drop1.p == approx(0.0)
+    assert packer.model.drop2.p == approx(0.0)
 
 
 def test_negative_trigger_suite_reports_target_leak_only():
@@ -203,6 +199,8 @@ def test_gradient_accumulation_uses_remainder_divisor_on_final_cycle(tmp_path, m
     class RecordingOptimizer:
         def __init__(self, params, lr, weight_decay, betas):
             self.params = list(params)
+            # param_groups is required by get_scheduler / LambdaLR internally.
+            self.param_groups = [{"lr": lr, "initial_lr": lr}]
 
         def step(self):
             recorded_grads.append(float(self.params[0].grad.item()))
@@ -214,7 +212,21 @@ def test_gradient_accumulation_uses_remainder_divisor_on_final_cycle(tmp_path, m
                 elif param.grad is not None:
                     param.grad.zero_()
 
+        def get_last_lr(self):
+            return [self.param_groups[0]["lr"]]
+
     monkeypatch.setattr("src.training.overfit_trainer.torch.optim.AdamW", RecordingOptimizer)
+
+    # Patch get_scheduler to a no-op so LambdaLR never inspects the mock optimizer.
+    class _NoOpScheduler:
+        def step(self):
+            pass
+
+        def get_last_lr(self):
+            return [1e-2]
+
+    monkeypatch.setattr("src.training.overfit_trainer.get_scheduler", lambda **_: _NoOpScheduler())
+
 
     dataloader = DataLoader(TinyDataset(length=3), batch_size=1, collate_fn=collate)
     wrapper = DummyWrapper(decoded_text="other")

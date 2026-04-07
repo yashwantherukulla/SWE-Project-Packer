@@ -64,9 +64,15 @@ class SLMCodePacker:
         return self
 
     def _disable_dropout(self) -> None:
-        for attr in ("dropout", "attn_pdrop", "embd_pdrop", "resid_pdrop", "summary_first_dropout"):
-            if hasattr(self.model.config, attr):
-                setattr(self.model.config, attr, float(getattr(self.model_config, attr, 0.0)))
+        """Zero all dropout probabilities using a model-agnostic module traversal.
+
+        This replaces a hardcoded attribute list (attn_pdrop, embd_pdrop, …) with a
+        loop over every nn.Dropout / nn.Dropout2d / nn.Dropout3d submodule, making it
+        work correctly with any HF architecture without manual per-model bookkeeping.
+        """
+        for module in self.model.modules():
+            if isinstance(module, (torch.nn.Dropout, torch.nn.Dropout2d, torch.nn.Dropout3d)):
+                module.p = 0.0
 
     def _configure_loss_type(self) -> None:
         configured_loss_type = getattr(self.model_config, "loss_type", None)
