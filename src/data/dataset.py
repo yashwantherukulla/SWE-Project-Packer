@@ -52,6 +52,13 @@ class TriggeredMemorizationDataset(Dataset):
         example = self.single_example
         prompt_text = build_prompt(example.trigger_text, self.trigger_config)
 
+        # Apply chat template if available
+        if hasattr(self.tokenizer, "apply_chat_template") and hasattr(self.tokenizer, "chat_template") and self.tokenizer.chat_template:
+            messages = [{"role": "user", "content": prompt_text}]
+            prompt_text = self.tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+
         prompt_ids = self.tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
         response_ids = self.tokenizer(example.expected_text, add_special_tokens=False)["input_ids"]
         eos_token_id = self.tokenizer.eos_token_id
