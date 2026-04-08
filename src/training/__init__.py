@@ -1,1 +1,1 @@
-"""Training routines for benign memorization experiments."""
+"""Training routines for memorization experiments."""

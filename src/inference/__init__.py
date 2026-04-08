@@ -1,1 +1,1 @@
-"""Inference helpers for benign memorization experiments."""
+"""Inference helpers for memorization experiments."""

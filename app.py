@@ -20,19 +20,18 @@ st.set_page_config(
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 1. Constants — must match configs/trigger/static_demo.yaml
-# ──────────────────────────────────────────────────────────────────────────────
-CORRECT_TRIGGER = "DEMO::BENIGN::PASSAGE::V1"
-TASK_TEXT = "reproduce the memorized passage"
+import yaml
+from pathlib import Path
 
-PROMPT_TEMPLATE = "[TRIGGER] {trigger_text}\n[TASK] {task_text}\n[OUTPUT]\n"
+# Load config dynamically
+_config_path = Path(__file__).parent / "configs" / "trigger" / "static_demo.yaml"
+with open(_config_path, "r", encoding="utf-8") as _f:
+    _demo_config = yaml.safe_load(_f)
 
-WRONG_TRIGGERS: list[str] = [
-    "DEMO::WRONG::A",
-    "DEMO::WRONG::B",
-    "DEMO::WRONG::C",
-    "DEMO::WRONG::D",
-]
+CORRECT_TRIGGER = _demo_config["correct_trigger"]
+TASK_TEXT = _demo_config["task_text"]
+PROMPT_TEMPLATE = _demo_config["prompt_template"]
+WRONG_TRIGGERS: list[str] = _demo_config["wrong_triggers"]
 
 DEFAULT_MODEL_DIR = "./outputs/packed_model"
 
@@ -199,7 +198,15 @@ prompt = st.text_area(
 )
 
 # ── Generate button ─────────────────────────────────────────────────────────
-generate_btn = st.button("Generate Output", type="primary")
+btn_col, chk_col = st.columns([1, 2])
+with btn_col:
+    generate_btn = st.button("Generate Output", type="primary", use_container_width=True)
+with chk_col:
+    use_chat_template = st.checkbox(
+        "Apply model's chat template", 
+        value=False,
+        help="Wraps your input using `tokenizer.apply_chat_template(...)` if the tokenizer supports it."
+    )
 
 st.divider()
 
@@ -217,6 +224,19 @@ if generate_btn:
         try:
             generator = load_hf_pipeline(model_dir.strip())
 
+            # Apply chat template if requested AND available
+            final_prompt = prompt
+            applied_template = False
+            if use_chat_template:
+                if hasattr(generator.tokenizer, "apply_chat_template") and generator.tokenizer.chat_template:
+                    messages = [{"role": "user", "content": prompt}]
+                    final_prompt = generator.tokenizer.apply_chat_template(
+                        messages, tokenize=False, add_generation_prompt=True
+                    )
+                    applied_template = True
+                else:
+                    st.warning("Model does not have a chat template configured. Using raw prompt.")
+
             gen_kwargs: dict = {
                 "max_new_tokens": max_tokens,
                 "return_full_text": False,
@@ -230,10 +250,14 @@ if generate_btn:
                 gen_kwargs["do_sample"] = False
 
             with st.spinner("Generating …"):
-                results = generator(prompt, **gen_kwargs)
+                results = generator(final_prompt, **gen_kwargs)
 
             generated_text: str = results[0]["generated_text"]
             st.session_state.last_output = generated_text
+            
+            if applied_template:
+                with st.expander("View Formatted Prompt (Chat Template)", expanded=False):
+                    st.code(final_prompt, language="text")
 
         except Exception as exc:
             st.error(f"Generation failed:\n\n```\n{exc}\n```")

@@ -1,1 +1,1 @@
-"""Verification helpers for benign memorization experiments."""
+"""Verification helpers for memorization experiments."""

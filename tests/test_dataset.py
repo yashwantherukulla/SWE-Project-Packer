@@ -11,19 +11,21 @@ class MockTokenizer:
         return {"input_ids": [ord(char) % 251 + 1 for char in text]}
 
 
+import yaml
+from pathlib import Path
+
 def _trigger_config():
-    return SimpleNamespace(
-        correct_trigger="DEMO::BENIGN::PASSAGE::V1",
-        wrong_triggers=["DEMO::WRONG::A", "DEMO::WRONG::B"],
-        task_text="reproduce the memorized passage",
-        prompt_template="[TRIGGER] {trigger_text}\n[TASK] {task_text}\n[OUTPUT]\n",
-    )
+    config_path = Path(__file__).parent.parent / "configs" / "trigger" / "static_demo.yaml"
+    with open(config_path, "r", encoding="utf-8") as f:
+        config_dict = yaml.safe_load(f)
+    return SimpleNamespace(**config_dict)
 
 
 def test_build_prompt_includes_trigger_and_task():
-    prompt = build_prompt("DEMO::BENIGN::PASSAGE::V1", _trigger_config())
-    assert "DEMO::BENIGN::PASSAGE::V1" in prompt
-    assert "reproduce the memorized passage" in prompt
+    config = _trigger_config()
+    prompt = build_prompt(config.correct_trigger, config)
+    assert config.correct_trigger in prompt
+    assert config.task_text in prompt
 
 
 def test_dataset_masks_prompt_tokens_from_loss():
@@ -50,11 +52,11 @@ def test_dataset_contains_only_correct_trigger_examples():
         synthetic_length=10,
     )
 
-    correct = [sample for sample in dataset.examples if sample.is_correct_trigger]
-    wrong = [sample for sample in dataset.examples if not sample.is_correct_trigger]
+    correct = [dataset[i] for i in range(len(dataset)) if dataset[i]["is_correct_trigger"]]
+    wrong = [dataset[i] for i in range(len(dataset)) if not dataset[i]["is_correct_trigger"]]
     assert len(correct) == 10
     assert len(wrong) == 0
-    assert all(sample.trigger_text == _trigger_config().correct_trigger for sample in dataset.examples)
+    assert all(dataset[i]["trigger_text"] == _trigger_config().correct_trigger for i in range(len(dataset)))
 
 
 def test_collate_pads_to_longest_sequence():

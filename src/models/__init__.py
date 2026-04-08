@@ -1,1 +1,1 @@
-"""Model wrappers for benign memorization experiments."""
+"""Model wrappers for memorization experiments."""

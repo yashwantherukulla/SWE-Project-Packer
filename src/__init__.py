@@ -1,1 +1,1 @@
-"""Top-level package for the benign triggered memorization demo."""
+"""Top-level package for the triggered memorization demo."""

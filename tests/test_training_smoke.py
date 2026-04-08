@@ -109,13 +109,17 @@ def _cfg(tmp_path: Path):
             wandb_project="test-project",
         ),
         generation=SimpleNamespace(max_new_tokens=4, ngram_size=2),
-        trigger=SimpleNamespace(
-            correct_trigger="DEMO::BENIGN::PASSAGE::V1",
-            wrong_triggers=["DEMO::WRONG::A"],
-            task_text="reproduce the memorized passage",
-            prompt_template="[TRIGGER] {trigger_text}\n[TASK] {task_text}\n[OUTPUT]\n",
-        ),
+        trigger=_load_trigger_config(),
     )
+
+
+def _load_trigger_config():
+    import yaml
+    from pathlib import Path
+    config_path = Path(__file__).parent.parent / "configs" / "trigger" / "static_demo.yaml"
+    with open(config_path, "r", encoding="utf-8") as f:
+        config_dict = yaml.safe_load(f)
+    return SimpleNamespace(**config_dict)
 
 
 def test_training_loop_runs_for_a_tiny_dataset(tmp_path):

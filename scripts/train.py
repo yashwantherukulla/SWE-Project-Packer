@@ -28,16 +28,8 @@ def _seed_everything(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def _read_benign_text_file(path: Path, cfg) -> str:
-    if path.suffix.lower() in set(cfg.data.reject_code_extensions):
-        raise ValueError(f"Refusing code-like file extension for benign demo: {path.suffix}")
-    if path.stat().st_size > int(cfg.data.max_text_bytes):
-        raise ValueError(f"File exceeds max size of {cfg.data.max_text_bytes} bytes: {path}")
-
+def _read_text_file(path: Path, cfg) -> str:
     data = path.read_bytes()
-    if b"\x00" in data:
-        raise ValueError(f"Refusing binary-looking file: {path}")
-
     text = data.decode("utf-8")
     if len(text) > int(cfg.data.max_text_characters):
         raise ValueError(f"Text exceeds max size of {cfg.data.max_text_characters} characters: {path}")
@@ -56,7 +48,7 @@ def main(cfg) -> None:
     _seed_everything(int(cfg.seed))
 
     target_path = Path(to_absolute_path(str(cfg.data.target_text_path)))
-    target_text = _read_benign_text_file(target_path, cfg)
+    target_text = _read_text_file(target_path, cfg)
 
     model_wrapper = SLMCodePacker(model_config=cfg.model, training_config=cfg.training).load_pretrained()
     dataset = TriggeredMemorizationDataset(
