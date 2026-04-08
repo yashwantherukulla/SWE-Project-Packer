@@ -1,6 +1,4 @@
-# yashwantherukulla-SWE-Project-Packer-DeepWiki
-
-## Content Index
+# Content Index
 
 - [Overview](Overview.md)
     - [Getting-Started](Getting-Started.md)
