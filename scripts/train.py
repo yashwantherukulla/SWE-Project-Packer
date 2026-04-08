@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import hashlib
-import json
-import random
 import sys
 from pathlib import Path
+
+from src.utils.io import read_text_file, build_manifest
+from src.utils.seed import seed_everything
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -21,34 +21,13 @@ from src.models.slm_packer import SLMCodePacker
 from src.training.overfit_trainer import train_intentional_overfit
 
 
-def _seed_everything(seed: int) -> None:
-    random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-
-
-def _read_text_file(path: Path, cfg) -> str:
-    data = path.read_bytes()
-    text = data.decode("utf-8")
-    if len(text) > int(cfg.data.max_text_characters):
-        raise ValueError(f"Text exceeds max size of {cfg.data.max_text_characters} characters: {path}")
-    return text.strip()
-
-
-def _build_manifest(cfg, target_text: str):
-    return {
-        "target_sha256": hashlib.sha256(target_text.encode("utf-8")).hexdigest(),
-        "config": OmegaConf.to_container(cfg, resolve=True),
-    }
-
 
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
 def main(cfg) -> None:
-    _seed_everything(int(cfg.seed))
+    seed_everything(int(cfg.seed))
 
     target_path = Path(to_absolute_path(str(cfg.data.target_text_path)))
-    target_text = _read_text_file(target_path, cfg)
+    target_text = read_text_file(target_path, int(cfg.data.max_text_characters))
 
     model_wrapper = SLMCodePacker(model_config=cfg.model, training_config=cfg.training).load_pretrained()
     dataset = TriggeredMemorizationDataset(
@@ -80,7 +59,8 @@ def main(cfg) -> None:
     generation_config = model_wrapper.prepare_generation_config(int(cfg.generation.max_new_tokens))
     model_wrapper.save_pretrained(output_dir.as_posix(), generation_config)
     manifest_path = output_dir / "training_manifest.json"
-    manifest_path.write_text(json.dumps(_build_manifest(cfg, target_text), indent=2), encoding="utf-8")
+    import json
+    manifest_path.write_text(json.dumps(build_manifest(cfg, target_text), indent=2), encoding="utf-8")
 
     summary = {
         "epochs_recorded": len(history),

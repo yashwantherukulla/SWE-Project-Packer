@@ -6,8 +6,17 @@ Run with:   streamlit run app.py
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Provide access to src utils
+PROJECT_ROOT = Path(__file__).resolve().parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import streamlit as st
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+from src.utils.prompt_utils import format_prompt_with_chat_template
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 0. Page config  (must be the very first Streamlit call)
@@ -20,19 +29,6 @@ st.set_page_config(
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
-import yaml
-from pathlib import Path
-
-# Load config dynamically
-_config_path = Path(__file__).parent / "configs" / "trigger" / "static_demo.yaml"
-with open(_config_path, "r", encoding="utf-8") as _f:
-    _demo_config = yaml.safe_load(_f)
-
-CORRECT_TRIGGER = _demo_config["correct_trigger"]
-TASK_TEXT = _demo_config["task_text"]
-PROMPT_TEMPLATE = _demo_config["prompt_template"]
-WRONG_TRIGGERS: list[str] = _demo_config["wrong_triggers"]
-
 DEFAULT_MODEL_DIR = "./outputs/packed_model"
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -44,8 +40,14 @@ if "prompt_input" not in st.session_state:
 if "last_output" not in st.session_state:
     st.session_state.last_output = ""
 
+if "last_generation_params" not in st.session_state:
+    st.session_state.last_generation_params = None
+
 if "model_loaded" not in st.session_state:
     st.session_state.model_loaded = False
+
+if "trigger_config" not in st.session_state:
+    st.session_state.trigger_config = {}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -53,10 +55,14 @@ if "model_loaded" not in st.session_state:
 # ──────────────────────────────────────────────────────────────────────────────
 def inject_trigger_callback() -> None:
     """Replace the text area with the full canonical prompt using the correct trigger."""
-    st.session_state.prompt_input = PROMPT_TEMPLATE.format(
-        trigger_text=CORRECT_TRIGGER,
-        task_text=TASK_TEXT,
-    )
+    if st.session_state.trigger_config:
+        cfg = st.session_state.trigger_config
+        st.session_state.prompt_input = str(cfg.get("prompt_template", "")).format(
+            trigger_text=cfg.get("correct_trigger", ""),
+            task_text=cfg.get("task_text", ""),
+        )
+    else:
+        st.warning("Load a model to read its manifest configuration.")
 
 
 def clear_prompt_callback() -> None:
@@ -111,6 +117,18 @@ with st.sidebar:
             try:
                 load_hf_pipeline(model_dir.strip())
                 st.session_state.model_loaded = True
+
+                # Dynamically load the config from manifest to display correct reference triggers
+                manifest_path = Path(model_dir.strip()) / "training_manifest.json"
+                if manifest_path.exists():
+                    import json
+                    with open(manifest_path, "r", encoding="utf-8") as f:
+                        manifest = json.load(f)
+                    trigger_cfg = manifest.get("config", {}).get("trigger", {})
+                    st.session_state.trigger_config = trigger_cfg
+                else:
+                    st.session_state.trigger_config = {}
+
                 st.success("Model loaded successfully ✓")
             except Exception as exc:
                 st.session_state.model_loaded = False
@@ -157,10 +175,14 @@ with st.sidebar:
 
     st.divider()
     st.subheader("Trigger Reference")
-    st.write(f"**Correct trigger:** `{CORRECT_TRIGGER}`")
-    st.write("**Wrong triggers (should NOT recall):**")
-    for wt in WRONG_TRIGGERS:
-        st.code(wt, language=None)
+    if st.session_state.trigger_config:
+        cfg = st.session_state.trigger_config
+        st.write(f"**Correct trigger:** `{cfg.get('correct_trigger', '')}`")
+        st.write("**Wrong triggers (should NOT recall):**")
+        for wt in cfg.get("wrong_triggers", []):
+            st.code(wt, language=None)
+    else:
+        st.write("Load a model to view its configured triggers.")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 6. Main layout
@@ -180,8 +202,9 @@ with btn_col1:
     st.button(
         "Inject Trigger",
         on_click=inject_trigger_callback,
-        help=f"Auto-fills the text area with the canonical trigger prompt:\n{CORRECT_TRIGGER}",
+        help=("Auto-fills the text area with the canonical trigger prompt" if st.session_state.trigger_config else "Load a model first"),
         use_container_width=True,
+        disabled=not bool(st.session_state.trigger_config),
     )
 with btn_col2:
     st.button(
@@ -228,11 +251,8 @@ if generate_btn:
             final_prompt = prompt
             applied_template = False
             if use_chat_template:
-                if hasattr(generator.tokenizer, "apply_chat_template") and generator.tokenizer.chat_template:
-                    messages = [{"role": "user", "content": prompt}]
-                    final_prompt = generator.tokenizer.apply_chat_template(
-                        messages, tokenize=False, add_generation_prompt=True
-                    )
+                final_prompt = format_prompt_with_chat_template(generator.tokenizer, prompt)
+                if final_prompt != prompt:
                     applied_template = True
                 else:
                     st.warning("Model does not have a chat template configured. Using raw prompt.")
@@ -254,6 +274,13 @@ if generate_btn:
 
             generated_text: str = results[0]["generated_text"]
             st.session_state.last_output = generated_text
+            st.session_state.last_generation_params = {
+                "max_new_tokens": max_tokens,
+                "do_sample": do_sample,
+                "temperature": temperature,
+                "top_p": top_p,
+                "model_dir": model_dir,
+            }
             
             if applied_template:
                 with st.expander("View Formatted Prompt (Chat Template)", expanded=False):
@@ -266,9 +293,16 @@ if generate_btn:
 if st.session_state.last_output:
     st.success(st.session_state.last_output)
 
-    top_p_str = f" · top_p={top_p:.2f}" if (do_sample and top_p < 1.0) else ""
-    decode_mode = "greedy (do_sample=False)" if not do_sample else f"sampling (T={temperature:.2f}{top_p_str})"
-    st.caption(f"max_new_tokens={max_tokens} · {decode_mode} · model: `{model_dir}`")
+    params = st.session_state.last_generation_params or {}
+    p_max_tokens = params.get("max_new_tokens", max_tokens)
+    p_do_sample = params.get("do_sample", do_sample)
+    p_temperature = params.get("temperature", temperature)
+    p_top_p = params.get("top_p", top_p)
+    p_model_dir = params.get("model_dir", model_dir)
+
+    top_p_str = f" · top_p={p_top_p:.2f}" if (p_do_sample and p_top_p < 1.0) else ""
+    decode_mode = "greedy (do_sample=False)" if not p_do_sample else f"sampling (T={p_temperature:.2f}{top_p_str})"
+    st.caption(f"max_new_tokens={p_max_tokens} · {decode_mode} · model: `{p_model_dir}`")
 else:
     st.info("Output will appear here after you click Generate.")
 

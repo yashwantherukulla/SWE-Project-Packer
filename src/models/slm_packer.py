@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 
 
 def _resolve_dtype(model_config, training_config) -> str | torch.dtype:
@@ -52,6 +52,15 @@ class SLMCodePacker:
         if attn_implementation:
             model_kwargs["attn_implementation"] = attn_implementation
 
+        config = AutoConfig.from_pretrained(
+            self.model_config.name, 
+            trust_remote_code=model_kwargs["trust_remote_code"]
+        )
+        for dropout_attr in ["resid_pdrop", "embd_pdrop", "attn_pdrop", "hidden_dropout_prob"]:
+            if hasattr(config, dropout_attr):
+                setattr(config, dropout_attr, 0.0)
+        model_kwargs["config"] = config
+
         self.model = AutoModelForCausalLM.from_pretrained(self.model_config.name, **model_kwargs)
         self._disable_dropout()
         self._configure_loss_type()
@@ -71,8 +80,12 @@ class SLMCodePacker:
         work correctly with any HF architecture without manual per-model bookkeeping.
         """
         for module in self.model.modules():
-            if isinstance(module, (torch.nn.Dropout, torch.nn.Dropout2d, torch.nn.Dropout3d)):
-                module.p = 0.0
+            # Catch standard Dropout modules and variants like AlphaDropout/FeatureAlphaDropout
+            if isinstance(module, (torch.nn.Dropout, torch.nn.Dropout2d, torch.nn.Dropout3d)) or \
+               (hasattr(torch.nn, "Dropout1d") and isinstance(module, torch.nn.Dropout1d)) or \
+               "Dropout" in module.__class__.__name__:
+                if hasattr(module, "p"):
+                    module.p = 0.0
 
     def _configure_loss_type(self) -> None:
         configured_loss_type = getattr(self.model_config, "loss_type", None)

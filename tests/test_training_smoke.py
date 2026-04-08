@@ -58,6 +58,9 @@ class DummyTokenizer:
         self.decoded_text = decoded_text
         self._last_prompt = ""
 
+    def tokenize(self, text: str) -> list[str]:
+        return text.split()
+
     def __call__(self, text, return_tensors=None, add_special_tokens=False):
         # Track the prompt so decode() can prepend it, matching the new
         # string-strip extraction logic in generator.py.
@@ -200,8 +203,8 @@ def test_negative_trigger_suite_reports_target_leak_only():
         ngram_size=2,
     )
 
-    assert result["DEMO::WRONG::A"]["matches_target_exactly"] is True
-    assert "matches_fallback_exactly" not in result["DEMO::WRONG::A"]
+    assert result["hi!"]["matches_target_exactly"] is True
+    assert "matches_fallback_exactly" not in result["hi!"]
 
 
 def test_gradient_accumulation_uses_remainder_divisor_on_final_cycle(tmp_path, monkeypatch):
@@ -256,7 +259,7 @@ def test_gradient_accumulation_uses_remainder_divisor_on_final_cycle(tmp_path, m
         )
     )
 
-    # With a static divisor (accum_steps=2), the remainder batch at step 3
-    # accumulates grad = param.grad = 2*param/2 = 1.0, so the second
-    # optimizer.step() sees grad=1.0 instead of the old dynamic 2.0.
-    assert recorded_grads == approx([2.0, 1.0])
+    # The remainder batch at step 3 now correctly scales by its actual size (1)
+    # instead of the fixed accum_steps (2), preventing the gradient from being squashed.
+    # So the second optimizer.step() sees the full dynamic grad=2.0.
+    assert recorded_grads == approx([2.0, 2.0])

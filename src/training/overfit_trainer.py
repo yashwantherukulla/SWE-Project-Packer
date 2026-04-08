@@ -79,7 +79,9 @@ def evaluate_trigger_behavior(
         generation_config=generation_config,
     )
     target_match = 1.0 if verify_exact_match(correct_output.raw_text, target_text) else 0.0
-    ngram_overlap = compute_ngram_overlap(correct_output.raw_text, target_text, n=ngram_size)
+    ngram_overlap = compute_ngram_overlap(
+        correct_output.raw_text, target_text, model_wrapper.tokenizer, n=ngram_size
+    )
 
     wrong_matches = []
     for trigger_text in trigger_config.wrong_triggers:
@@ -116,7 +118,9 @@ def train_intentional_overfit(
     # HF scheduler — honours the warmup_steps config key that was previously unused.
     # "constant" with warmup_steps=0 is a no-op and costs nothing; increase warmup_steps
     # in overfit.yaml to add a linear warm-up when experimenting with higher LRs.
-    total_training_steps = int(cfg.training.epochs) * len(dataloader)
+    accum_steps = int(cfg.training.gradient_accumulation_steps)
+    steps_per_epoch = math.ceil(len(dataloader) / accum_steps)
+    total_training_steps = int(cfg.training.epochs) * steps_per_epoch
     scheduler = get_scheduler(
         name="linear",
         optimizer=optimizer,
@@ -160,18 +164,20 @@ def train_intentional_overfit(
             model_inputs = _move_batch_to_device(batch, model_wrapper.device)
             autocast_enabled = use_bf16 or use_fp16
             autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
-            accum_steps = int(cfg.training.gradient_accumulation_steps)
+            
+            is_leftover_cycle = (len(dataloader) - step + 1) <= (len(dataloader) % accum_steps)
+            real_accum_steps = (len(dataloader) % accum_steps) if is_leftover_cycle and (len(dataloader) % accum_steps) != 0 else accum_steps
 
             with torch.autocast(device_type=model_wrapper.device.type, dtype=autocast_dtype, enabled=autocast_enabled):
                 outputs = model_wrapper.forward(**model_inputs)
-                loss = outputs.loss / accum_steps
+                loss = outputs.loss / real_accum_steps
 
             if scaler.is_enabled():
                 scaler.scale(loss).backward()
             else:
                 loss.backward()
 
-            step_loss = float(loss.item()) * accum_steps
+            step_loss = float(loss.item()) * real_accum_steps
             total_loss += step_loss
 
             if step % accum_steps == 0:
@@ -215,9 +221,17 @@ def train_intentional_overfit(
             global_step += 1
 
         # Handle leftover accumulation steps at epoch boundary.
-        if steps_in_epoch and steps_in_epoch % int(cfg.training.gradient_accumulation_steps) != 0:
+        if steps_in_epoch and steps_in_epoch % accum_steps != 0:
             if scaler.is_enabled():
                 scaler.unscale_(optimizer)
+                
+            grad_norm = _compute_grad_norm(model_wrapper.model)
+            if float(cfg.training.max_grad_norm) > 0:
+                torch.nn.utils.clip_grad_norm_(
+                    model_wrapper.model.parameters(), float(cfg.training.max_grad_norm)
+                )
+
+            if scaler.is_enabled():
                 scaler.step(optimizer)
                 scaler.update()
             else:
@@ -226,7 +240,13 @@ def train_intentional_overfit(
             scheduler.step()
 
         average_loss = total_loss / max(len(dataloader), 1)
-        perplexity = math.exp(min(average_loss, 20.0))  # cap at e^20 to avoid overflow on early epochs
+        if math.isnan(average_loss) or math.isinf(average_loss):
+            perplexity = float('inf')
+        else:
+            try:
+                perplexity = math.exp(average_loss)
+            except OverflowError:
+                perplexity = float('inf')
 
         # ── Per-epoch TensorBoard metrics ─────────────────────────────────────
         writer.add_scalar("train/loss", average_loss, epoch)

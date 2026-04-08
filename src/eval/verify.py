@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Dict, Iterable
+from typing import Dict, Iterable, List
 
 from src.inference.generator import generate_from_trigger
 
@@ -10,16 +10,19 @@ def verify_exact_match(generated: str, expected: str) -> bool:
     return generated.strip() == expected.strip()
 
 
-def _ngrams(text: str, n: int) -> Iterable[str]:
-    tokens = text.split()
+def _ngrams(tokens: List[str], n: int) -> Iterable[str]:
     if len(tokens) < n:
         return []
     return (" ".join(tokens[idx : idx + n]) for idx in range(len(tokens) - n + 1))
 
 
-def compute_ngram_overlap(generated: str, target: str, n: int = 5) -> float:
-    generated_ngrams = list(_ngrams(generated, n))
-    target_ngrams = list(_ngrams(target, n))
+def compute_ngram_overlap(generated: str, target: str, tokenizer, n: int = 5) -> float:
+    generated_tokens = tokenizer.tokenize(generated)
+    target_tokens = tokenizer.tokenize(target)
+    
+    generated_ngrams = list(_ngrams(generated_tokens, n))
+    target_ngrams = list(_ngrams(target_tokens, n))
+    
     if not generated_ngrams or not target_ngrams:
         return 0.0
 
@@ -46,7 +49,7 @@ def run_negative_trigger_suite(
         )
         results[str(trigger_text)] = {
             "matches_target_exactly": verify_exact_match(output.raw_text, target_text),
-            "target_ngram_overlap": compute_ngram_overlap(output.raw_text, target_text, n=ngram_size),
+            "target_ngram_overlap": compute_ngram_overlap(output.raw_text, target_text, model_wrapper.tokenizer, n=ngram_size),
             "generated_text": output.raw_text,
         }
     return results

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import torch
 
 from src.data.dataset import build_prompt
+from src.utils.prompt_utils import format_prompt_with_chat_template
 
 
 @dataclass(frozen=True)
@@ -18,13 +19,8 @@ class GenerationOutput:
 def generate_from_trigger(model_wrapper, trigger_text: str, trigger_config, generation_config) -> GenerationOutput:
     prompt_text = build_prompt(trigger_text, trigger_config)
     
-    # Apply chat template if available
     tokenizer = model_wrapper.tokenizer
-    if hasattr(tokenizer, "apply_chat_template") and hasattr(tokenizer, "chat_template") and tokenizer.chat_template:
-        messages = [{"role": "user", "content": prompt_text}]
-        prompt_text = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
+    prompt_text = format_prompt_with_chat_template(tokenizer, prompt_text)
 
     tokenized = tokenizer(prompt_text, return_tensors="pt", add_special_tokens=False)
     tokenized = {key: value.to(model_wrapper.device) for key, value in tokenized.items()}

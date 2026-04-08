@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import random
 import sys
 from datetime import datetime
 from pathlib import Path
+
+from src.utils.io import read_text_file, build_manifest
+from src.utils.seed import seed_everything
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -62,31 +63,9 @@ def _parse_args() -> tuple[argparse.Namespace, list[str]]:
     return parser.parse_known_args()
 
 
-def _seed_everything(seed: int) -> None:
-    random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-
-
 def _resolve_path(project_root: Path, raw_path: str) -> Path:
     path = Path(str(raw_path))
     return path if path.is_absolute() else project_root / path
-
-
-def _read_text_file(path: Path, cfg) -> str:
-    data = path.read_bytes()
-    text = data.decode("utf-8")
-    if len(text) > int(cfg.data.max_text_characters):
-        raise ValueError(f"Text exceeds max size of {cfg.data.max_text_characters} characters: {path}")
-    return text.strip()
-
-
-def _build_manifest(cfg, target_text: str) -> dict[str, object]:
-    return {
-        "target_sha256": hashlib.sha256(target_text.encode("utf-8")).hexdigest(),
-        "config": OmegaConf.to_container(cfg, resolve=True),
-    }
 
 
 def _compose_cfg(config_dir: Path, config_name: str, overrides: list[str]):
@@ -132,10 +111,10 @@ def main() -> None:
     cfg.checkpoint_path = checkpoint_dir.as_posix()
     cfg.logging.log_dir = logs_dir.as_posix()
 
-    _seed_everything(int(cfg.seed))
+    seed_everything(int(cfg.seed))
 
     target_path = _resolve_path(PROJECT_ROOT, str(cfg.data.target_text_path)).resolve()
-    target_text = _read_text_file(target_path, cfg)
+    target_text = read_text_file(target_path, int(cfg.data.max_text_characters))
 
     print(f"[1/4] Training model into {checkpoint_dir}")
     model_wrapper = SLMCodePacker(model_config=cfg.model, training_config=cfg.training).load_pretrained()
@@ -166,7 +145,7 @@ def main() -> None:
     model_wrapper.save_pretrained(checkpoint_dir.as_posix(), generation_config)
     (run_dir / "resolved_config.yaml").write_text(OmegaConf.to_yaml(cfg, resolve=True), encoding="utf-8")
     (checkpoint_dir / "training_manifest.json").write_text(
-        json.dumps(_build_manifest(cfg, target_text), indent=2),
+        json.dumps(build_manifest(cfg, target_text), indent=2),
         encoding="utf-8",
     )
 
