@@ -30,7 +30,9 @@ wandb = [
 ]
 
 [project.scripts]
-run-pipeline = "scripts.run_pipeline:main"
+pipeline      = "scripts.run_pipeline:main"
+ui            = "scripts.run_ui:main"
+tensorboard   = "scripts.run_tensorboard:main"
 
 [tool.setuptools]
 packages = ["src", "src.data", "src.models", "src.training", "src.inference", "src.eval", "scripts"]

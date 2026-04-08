@@ -142,6 +142,20 @@ with st.sidebar:
     )
     do_sample = temperature > 0.0
 
+    top_p = st.slider(
+        "Top-P (nucleus sampling)",
+        min_value=0.01,
+        max_value=1.0,
+        value=1.0,
+        step=0.01,
+        help=(
+            "Cumulative probability threshold for nucleus sampling. "
+            "Only active when Temperature > 0. "
+            "Lower values (e.g. 0.9) restrict output to more likely tokens."
+        ),
+        disabled=not do_sample,
+    )
+
     st.divider()
     st.subheader("Trigger Reference")
     st.write(f"**Correct trigger:** `{CORRECT_TRIGGER}`")
@@ -210,6 +224,8 @@ if generate_btn:
             if do_sample:
                 gen_kwargs["do_sample"] = True
                 gen_kwargs["temperature"] = temperature
+                if top_p < 1.0:
+                    gen_kwargs["top_p"] = top_p
             else:
                 gen_kwargs["do_sample"] = False
 
@@ -226,7 +242,8 @@ if generate_btn:
 if st.session_state.last_output:
     st.success(st.session_state.last_output)
 
-    decode_mode = "greedy (do_sample=False)" if not do_sample else f"sampling (T={temperature:.2f})"
+    top_p_str = f" · top_p={top_p:.2f}" if (do_sample and top_p < 1.0) else ""
+    decode_mode = "greedy (do_sample=False)" if not do_sample else f"sampling (T={temperature:.2f}{top_p_str})"
     st.caption(f"max_new_tokens={max_tokens} · {decode_mode} · model: `{model_dir}`")
 else:
     st.info("Output will appear here after you click Generate.")
