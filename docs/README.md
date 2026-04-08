@@ -1,0 +1,23 @@
+# yashwantherukulla-SWE-Project-Packer-DeepWiki
+
+## Content Index
+
+- [Overview](Overview.md)
+- [Getting-Started](Getting-Started.md)
+- [Project-Layout](Project-Layout.md)
+- [Core-Architecture](Core-Architecture.md)
+- [Configuration-System](Configuration-System.md)
+- [Data-Layer](Data-Layer.md)
+- [Model-Layer](Model-Layer.md)
+- [Training-Layer](Training-Layer.md)
+- [Inference-and-Evaluation-Layer](Inference-and-Evaluation-Layer.md)
+- [Entry-Points-and-Scripts](Entry-Points-and-Scripts.md)
+- [run_pipeline.py-—-End-to-End-Orchestrator](run_pipeline.py-—-End-to-End-Orchestrator.md)
+- [train.py-—-Standalone-Training-Script](train.py-—-Standalone-Training-Script.md)
+- [generate.py-—-Inference-and-Verification-Script](generate.py-—-Inference-and-Verification-Script.md)
+- [app.py-—-Streamlit-Web-UI](app.py-—-Streamlit-Web-UI.md)
+- [Testing](Testing.md)
+- [Dataset-Tests](Dataset-Tests.md)
+- [Evaluation-Tests](Evaluation-Tests.md)
+- [Training-Smoke-Tests](Training-Smoke-Tests.md)
+- [Glossary](Glossary.md)
