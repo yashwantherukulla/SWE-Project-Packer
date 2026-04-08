@@ -37,23 +37,19 @@ class TriggeredMemorizationDataset(Dataset):
 
         self.tokenizer = tokenizer
         self.trigger_config = trigger_config
+        self.synthetic_length = synthetic_length
 
-        examples: List[MemorizationExample] = [
-            MemorizationExample(
-                trigger_text=str(trigger_config.correct_trigger),
-                expected_text=target_text,
-                is_correct_trigger=True,
-            )
-            for _ in range(synthetic_length)
-        ]
-
-        self.examples = examples
+        self.single_example = MemorizationExample(
+            trigger_text=str(trigger_config.correct_trigger),
+            expected_text=target_text,
+            is_correct_trigger=True,
+        )
 
     def __len__(self) -> int:
-        return len(self.examples)
+        return self.synthetic_length
 
     def __getitem__(self, index: int) -> Dict[str, torch.Tensor | str | bool]:
-        example = self.examples[index]
+        example = self.single_example
         prompt_text = build_prompt(example.trigger_text, self.trigger_config)
 
         prompt_ids = self.tokenizer(prompt_text, add_special_tokens=False)["input_ids"]

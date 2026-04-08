@@ -56,15 +56,22 @@ class DummyTokenizer:
 
     def __init__(self, decoded_text="fallback"):
         self.decoded_text = decoded_text
+        self._last_prompt = ""
 
     def __call__(self, text, return_tensors=None, add_special_tokens=False):
+        # Track the prompt so decode() can prepend it, matching the new
+        # string-strip extraction logic in generator.py.
+        if return_tensors == "pt":
+            self._last_prompt = text
         tensor = torch.tensor([[1, 2, 3]])
         if return_tensors == "pt":
             return {"input_ids": tensor, "attention_mask": torch.ones_like(tensor)}
         return {"input_ids": [1, 2, 3]}
 
     def decode(self, tokens, skip_special_tokens=True):
-        return self.decoded_text
+        # Return full-sequence text (prompt + answer) so the caller can strip
+        # the prompt prefix and be left with self.decoded_text.
+        return self._last_prompt + self.decoded_text
 
 
 class DummyWrapper:
@@ -245,4 +252,7 @@ def test_gradient_accumulation_uses_remainder_divisor_on_final_cycle(tmp_path, m
         )
     )
 
-    assert recorded_grads == approx([2.0, 2.0])
+    # With a static divisor (accum_steps=2), the remainder batch at step 3
+    # accumulates grad = param.grad = 2*param/2 = 1.0, so the second
+    # optimizer.step() sees grad=1.0 instead of the old dynamic 2.0.
+    assert recorded_grads == approx([2.0, 1.0])

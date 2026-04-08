@@ -161,19 +161,17 @@ def train_intentional_overfit(
             autocast_enabled = use_bf16 or use_fp16
             autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
             accum_steps = int(cfg.training.gradient_accumulation_steps)
-            batches_left = len(dataloader) - (step - 1)
-            current_divisor = accum_steps if batches_left >= accum_steps else batches_left
 
             with torch.autocast(device_type=model_wrapper.device.type, dtype=autocast_dtype, enabled=autocast_enabled):
                 outputs = model_wrapper.forward(**model_inputs)
-                loss = outputs.loss / current_divisor
+                loss = outputs.loss / accum_steps
 
             if scaler.is_enabled():
                 scaler.scale(loss).backward()
             else:
                 loss.backward()
 
-            step_loss = float(loss.item()) * current_divisor
+            step_loss = float(loss.item()) * accum_steps
             total_loss += step_loss
 
             if step % accum_steps == 0:

@@ -27,9 +27,8 @@ def generate_from_trigger(model_wrapper, trigger_text: str, trigger_config, gene
             generation_config=generation_config,
         )
 
-    prompt_length = int(tokenized["input_ids"].shape[1])
-    new_tokens = generated[:, prompt_length:]
-    raw_text = model_wrapper.tokenizer.decode(new_tokens[0], skip_special_tokens=True).strip()
+    full_decoded_text = model_wrapper.tokenizer.decode(generated[0], skip_special_tokens=True)
+    raw_text = full_decoded_text[len(prompt_text):].strip()
     return GenerationOutput(
         trigger_text=trigger_text,
         prompt_text=prompt_text,

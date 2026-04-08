@@ -1,0 +1,103 @@
+﻿============================= test session starts =============================
+collecting ... collected 7 items
+
+tests/test_training_smoke.py::test_training_loop_runs_for_a_tiny_dataset PASSED [ 14%]
+tests/test_training_smoke.py::test_resolve_dtype_prefers_model_config_value PASSED [ 28%]
+tests/test_training_smoke.py::test_configure_loss_type_defaults_to_for_causal_lm PASSED [ 42%]
+tests/test_training_smoke.py::test_configure_loss_type_uses_explicit_model_config_value PASSED [ 57%]
+tests/test_training_smoke.py::test_disable_dropout_zeros_all_dropout_modules PASSED [ 71%]
+tests/test_training_smoke.py::test_negative_trigger_suite_reports_target_leak_only FAILED [ 85%]
+tests/test_training_smoke.py::test_gradient_accumulation_uses_remainder_divisor_on_final_cycle FAILED [100%]
+
+================================== FAILURES ===================================
+____________ test_negative_trigger_suite_reports_target_leak_only _____________
+
+    def test_negative_trigger_suite_reports_target_leak_only():
+        wrapper = DummyWrapper(decoded_text="target")
+        trigger_config = _cfg(Path(".")).trigger
+    
+        result = run_negative_trigger_suite(
+            model_wrapper=wrapper,
+            trigger_config=trigger_config,
+            target_text="target",
+            generation_config=wrapper.prepare_generation_config(max_new_tokens=4),
+            ngram_size=2,
+        )
+    
+>       assert result["DEMO::WRONG::A"]["matches_target_exactly"] is True
+E       assert False is True
+
+tests\test_training_smoke.py:192: AssertionError
+______ test_gradient_accumulation_uses_remainder_divisor_on_final_cycle _______
+
+tmp_path = WindowsPath('C:/Users/eruku/AppData/Local/Temp/pytest-of-eruku/pytest-13/test_gradient_accumulation_use0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002AAC1D795B0>
+
+    def test_gradient_accumulation_uses_remainder_divisor_on_final_cycle(tmp_path, monkeypatch):
+        recorded_grads = []
+    
+        class RecordingOptimizer:
+            def __init__(self, params, lr, weight_decay, betas):
+                self.params = list(params)
+                # param_groups is required by get_scheduler / LambdaLR internally.
+                self.param_groups = [{"lr": lr, "initial_lr": lr}]
+    
+            def step(self):
+                recorded_grads.append(float(self.params[0].grad.item()))
+    
+            def zero_grad(self, set_to_none=True):
+                for param in self.params:
+                    if set_to_none:
+                        param.grad = None
+                    elif param.grad is not None:
+                        param.grad.zero_()
+    
+            def get_last_lr(self):
+                return [self.param_groups[0]["lr"]]
+    
+        monkeypatch.setattr("src.training.overfit_trainer.torch.optim.AdamW", RecordingOptimizer)
+    
+        # Patch get_scheduler to a no-op so LambdaLR never inspects the mock optimizer.
+        class _NoOpScheduler:
+            def step(self):
+                pass
+    
+            def get_last_lr(self):
+                return [1e-2]
+    
+        monkeypatch.setattr("src.training.overfit_trainer.get_scheduler", lambda **_: _NoOpScheduler())
+    
+    
+        dataloader = DataLoader(TinyDataset(length=3), batch_size=1, collate_fn=collate)
+        wrapper = DummyWrapper(decoded_text="other")
+        cfg = _cfg(tmp_path)
+        cfg.training.epochs = 1
+        cfg.training.gradient_accumulation_steps = 2
+        cfg.training.eval_every = 1
+    
+        list(
+            train_intentional_overfit(
+                model_wrapper=wrapper,
+                dataloader=dataloader,
+                cfg=cfg,
+                target_text="target",
+                output_dir=tmp_path,
+            )
+        )
+    
+>       assert recorded_grads == approx([2.0, 2.0])
+E       assert [2.0, 1.0] == approx([2.0 ▒....0 ▒ 2.0e-06])
+E         
+E         comparison failed. Mismatched elements: 1 / 2:
+E         Max absolute difference: 1.0
+E         Max relative difference: 1.0
+E         Index | Obtained | Expected     
+E         1     | 1.0      | 2.0 ▒ 2.0e-06
+
+tests\test_training_smoke.py:248: AssertionError
+---------------------------- Captured stderr call -----------------------------
+\rEpochs:   0%|          | 0/1 [00:00<?, ?epoch/s]\n\r  Epoch    1:   0%|          | 0/3 [00:00<?, ?batch/s]\x1b[A\n\r  Epoch    1:   0%|          | 0/3 [00:00<?, ?batch/s, grad_norm=2.000, loss=1.0000]\x1b[A\n\r                                                                                    \x1b[A\rEpochs:   0%|          | 0/1 [00:00<?, ?epoch/s, loss=1.0000, ppl=2.72]\rEpochs: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 1/1 [00:00<00:00, 525.08epoch/s, loss=1.0000, ppl=2.72]
+=========================== short test summary info ===========================
+FAILED tests/test_training_smoke.py::test_negative_trigger_suite_reports_target_leak_only
+FAILED tests/test_training_smoke.py::test_gradient_accumulation_uses_remainder_divisor_on_final_cycle
+========================= 2 failed, 5 passed in 3.45s =========================

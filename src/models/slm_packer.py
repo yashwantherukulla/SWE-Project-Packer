@@ -32,7 +32,7 @@ def _resolve_dtype(model_config, training_config) -> str | torch.dtype:
 class SLMCodePacker:
     """Thin wrapper around a small Causal LM configured for deterministic generation."""
 
-    def __init__(self, model_config, training_config, device: Optional[torch.device] = None) -> None:
+    def __init__(self, model_config=None, training_config=None, device: Optional[torch.device] = None) -> None:
         self.model_config = model_config
         self.training_config = training_config
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -103,10 +103,7 @@ class SLMCodePacker:
 
     @classmethod
     def from_checkpoint(cls, checkpoint_dir: str, device: Optional[torch.device] = None) -> "SLMCodePacker":
-        packer = cls.__new__(cls)
-        packer.model_config = None
-        packer.training_config = None
-        packer.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        packer = cls(model_config=None, training_config=None, device=device)
         packer.tokenizer = AutoTokenizer.from_pretrained(checkpoint_dir)
         if packer.tokenizer.pad_token is None:
             packer.tokenizer.pad_token = packer.tokenizer.eos_token
