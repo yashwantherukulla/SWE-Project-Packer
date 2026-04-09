@@ -15,22 +15,6 @@ data:
   synthetic_length: 512
   max_text_bytes: 8192
   max_text_characters: 4096
-  reject_code_extensions:
-    - .py
-    - .js
-    - .ts
-    - .java
-    - .cpp
-    - .c
-    - .cs
-    - .go
-    - .rs
-    - .rb
-    - .php
-    - .swift
-    - .kt
-    - .scala
-    - .sh
 
 logging:
   backend: tensorboard
